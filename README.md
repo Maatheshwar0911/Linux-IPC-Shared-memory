@@ -19,15 +19,110 @@ Write the C Program using Linux Process API - Shared Memory
 Execute the C Program for the desired output. 
 
 # PROGRAM:
+```
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/shm.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
-## Write a C program that illustrates two processes communicating using shared memory.
+#define TEXT_SZ 2048
 
+struct shared_use_st {
+    int written;
+    char some_text[TEXT_SZ];
+};
 
+int main() {
+    int shmid;
+    void *shared_memory;
+    struct shared_use_st *shared_stuff;
 
+    shmid = shmget(IPC_PRIVATE, sizeof(struct shared_use_st), 0666 | IPC_CREAT);
+    if (shmid == -1) {
+        perror("shmget");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Shared memory id = %d\n", shmid);
+
+    shared_memory = shmat(shmid, NULL, 0);
+    if (shared_memory == (void *)-1) {
+        perror("shmat");
+        shmctl(shmid, IPC_RMID, NULL);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Memory attached at %p\n", shared_memory);
+
+    shared_stuff = (struct shared_use_st *)shared_memory;
+    shared_stuff->written = 0;
+
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        perror("fork");
+        shmdt(shared_memory);
+        shmctl(shmid, IPC_RMID, NULL);
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid == 0) {
+        while (1) {
+            while (shared_stuff->written == 0)
+                sleep(1);
+
+            printf("Consumer received: %s", shared_stuff->some_text);
+
+            if (strncmp(shared_stuff->some_text, "end", 3) == 0)
+                break;
+
+            shared_stuff->written = 0;
+        }
+
+        shmdt(shared_memory);
+        exit(EXIT_SUCCESS);
+    } else {
+        char buffer[TEXT_SZ];
+
+        while (1) {
+            printf("Enter Some Text: ");
+            fflush(stdout);
+
+            if (fgets(buffer, TEXT_SZ, stdin) == NULL)
+                break;
+
+            strncpy(shared_stuff->some_text, buffer, TEXT_SZ - 1);
+            shared_stuff->some_text[TEXT_SZ - 1] = '\0';
+
+            shared_stuff->written = 1;
+
+            printf("Producer sent: %s", shared_stuff->some_text);
+
+            if (strncmp(buffer, "end", 3) == 0)
+                break;
+
+            while (shared_stuff->written == 1)
+                sleep(1);
+        }
+
+        wait(NULL);
+
+        shmdt(shared_memory);
+        shmctl(shmid, IPC_RMID, NULL);
+
+        exit(EXIT_SUCCESS);
+    }
+
+    return 0;
+}
+```
 
 
 ## OUTPUT
-
+![Alt text](<../Screenshot at 2026-09-06 10-47-17.png>)
 
 # RESULT:
 The program is executed successfully.
